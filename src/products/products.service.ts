@@ -8,21 +8,32 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { Product } from './entities/product.entity';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dtos/paginations.dto';
 import { validate as isUUID } from 'uuid';
+import { ProductImage, Product } from './entities';
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger('ProductsService');
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+
+    @InjectRepository(ProductImage)
+    private readonly productImagesRepository: Repository<ProductImage>,
+
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createProductDto: CreateProductDto) {
     try {
-      const product = this.productRepository.create(createProductDto);
+      const { images = [], ...productDetails } = createProductDto;
+      const product = this.productRepository.create({
+        ...productDetails,
+        images: images.map((image) =>
+          this.productImagesRepository.create({ url: image }),
+        ),
+      });
       await this.productRepository.save(product);
       return product;
     } catch (error) {
@@ -32,12 +43,18 @@ export class ProductsService {
 
   async findAll(paginationDtp: PaginationDto) {
     const { limit = 10, offset = 0 } = paginationDtp;
-    const allProduct = await this.productRepository.find({
+    const product = await this.productRepository.find({
       take: limit,
       skip: offset,
+      relations: {
+        images: true,
+      },
       //Todo relaciones
     });
-    return allProduct;
+    return product.map(({ images, ...rest }) => ({
+      ...rest,
+      images: images.map((img) => img.url),
+    }));
   }
 
   async findOne(term: string) {
@@ -45,12 +62,13 @@ export class ProductsService {
     if (isUUID(term)) {
       product = await this.productRepository.findOneBy({ id: term });
     } else {
-      const queryBuild = this.productRepository.createQueryBuilder();
+      const queryBuild = this.productRepository.createQueryBuilder('prod');
       product = await queryBuild
         .where('UPPER(title) =:title or slug =:slug', {
           title: term.toUpperCase(),
           slug: term.toLowerCase(),
         })
+        .leftJoinAndSelect('prod.images', 'prodImages')
         .getOne();
     }
 
@@ -62,19 +80,43 @@ export class ProductsService {
   }
 
   async update(id: string, updateProductDto: UpdateProductDto) {
-    const product = await this.productRepository.preload({
-      id,
-      ...updateProductDto,
-    });
+    const { images, ...toUpdate } = updateProductDto;
+
+    const product = await this.productRepository.preload({ id, ...toUpdate });
+
     if (!product) {
       throw new NotFoundException(`Product with id ${id} not found`);
     }
+    //Create query runner
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
-      await this.productRepository.save(product);
-      return product;
+      if (images) {
+        await queryRunner.manager.delete(ProductImage, { product: { id } });
+        product.images = images.map((img) =>
+          this.productImagesRepository.create({ url: img }),
+        );
+      }
+      await queryRunner.manager.save(product);
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+      // await this.productRepository.save(product);
+      return this.findOnePlan(id);
     } catch (error) {
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+
       this.handleDbExceptions(error);
     }
+  }
+  async findOnePlan(term: string) {
+    const { images = [], ...rest } = await this.findOne(term);
+    return {
+      ...rest,
+      images: images.map((img) => img.url),
+    };
   }
 
   async remove(id: string) {
