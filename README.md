@@ -18,3 +18,9 @@
  yarn start:dev
  ````
 
+ 
+7. Execute seed and lift the database
+ ````
+ htto://localhost:3000/api/seed
+ ````
+
