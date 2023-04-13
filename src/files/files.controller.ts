@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { FilesService } from './files.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { fileFilter } from './helpers/fileFilter.helper';
+import { fileFilter, fileNamer } from './helpers/';
 import { diskStorage } from 'multer';
 
 @Controller('files')
@@ -21,6 +21,7 @@ export class FilesController {
       // limits: { fileSize: 100 },
       storage: diskStorage({
         destination: './static/uploads',
+        filename: fileNamer,
       }),
     }),
   )
