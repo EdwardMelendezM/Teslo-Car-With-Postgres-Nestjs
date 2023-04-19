@@ -1,4 +1,5 @@
 /* eslint-disable prettier/prettier */
+import * as bcrypt from 'bcrypt';
 interface SeedProduct {
   description: string;
   images: string[];
@@ -31,13 +32,13 @@ export const initialData: SeedData = {
     {
       email:'test1@gmail.com',
       fullName:'test1',
-      password:'Abc123',
+      password:bcrypt.hashSync('Abc123', 10),
       roles:['admin']
     },
     {
       email:'test2@gmail.com',
       fullName:'test2',
-      password:'Abc123',
+      password:bcrypt.hashSync('Abc123', 10),
       roles:['user','super']
     }
   ],
